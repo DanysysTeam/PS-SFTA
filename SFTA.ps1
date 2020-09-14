@@ -6,10 +6,10 @@
     Set File/Protocol Type Association Default Application Windows 8/10
 
 .NOTES
-    Version    : 1.0.0
+    Version    : 1.1.0
     Author(s)  : Danyfirex & Dany3j
     Credits    : https://bbs.pediy.com/thread-213954.htm
-                 Matthew Graeber - Get-DelegateType/Get-ProcAddress Functions
+                 LMongrain - Hash Algorithm PureBasic Version
     License    : MIT License
     Copyright  : 2020 Danysys. <danysys.com>
   
@@ -261,75 +261,28 @@ function Set-FTA {
   Write-Verbose "ProgId: $ProgId"
   Write-Verbose "Extension/Protocol: $Extension"
 
-  function local:Get-DelegateType {
-    Param
-    (
-      [OutputType([Type])]
-
-      [Parameter( Position = 0)]
-      [Type[]]
-      $Parameters = (New-Object Type[](0)),
-
-      [Parameter( Position = 1 )]
-      [Type]
-      $ReturnType = [Void]
-    )
-
-    $Domain = [AppDomain]::CurrentDomain
-    $DynAssembly = New-Object System.Reflection.AssemblyName('ReflectedDelegate')
-    $AssemblyBuilder = $Domain.DefineDynamicAssembly($DynAssembly, [System.Reflection.Emit.AssemblyBuilderAccess]::Run)
-    $ModuleBuilder = $AssemblyBuilder.DefineDynamicModule('InMemoryModule', $false)
-    $TypeBuilder = $ModuleBuilder.DefineType('MyDelegateType', 'Class, Public, Sealed, AnsiClass, AutoClass', [System.MulticastDelegate])
-    $ConstructorBuilder = $TypeBuilder.DefineConstructor('RTSpecialName, HideBySig, Public', [System.Reflection.CallingConventions]::Standard, $Parameters)
-    $ConstructorBuilder.SetImplementationFlags('Runtime, Managed')
-    $MethodBuilder = $TypeBuilder.DefineMethod('Invoke', 'Public, HideBySig, NewSlot, Virtual', $ReturnType, $Parameters)
-    $MethodBuilder.SetImplementationFlags('Runtime, Managed')
-
-    Write-Output $TypeBuilder.CreateType()
-  }
-
-
-  function local:Get-ProcAddress {
-    Param
-    (
-      [OutputType([IntPtr])]
-
-      [Parameter( Position = 0, Mandatory = $True )]
-      [String]
-      $Module,
-
-      [Parameter( Position = 1, Mandatory = $True )]
-      [String]
-      $Procedure
-    )
-
-    # Get a reference to System.dll in the GAC
-    $SystemAssembly = [AppDomain]::CurrentDomain.GetAssemblies() |
-    Where-Object { $_.GlobalAssemblyCache -And $_.Location.Split('\\')[-1].Equals('System.dll') }
-    $UnsafeNativeMethods = $SystemAssembly.GetType('Microsoft.Win32.UnsafeNativeMethods')
-    # Get a reference to the GetModuleHandle and GetProcAddress methods
-    $GetModuleHandle = $UnsafeNativeMethods.GetMethod('GetModuleHandle')
-    # $GetProcAddress = $UnsafeNativeMethods.GetMethod('GetProcAddress')
-    $GetProcAddress = $UnsafeNativeMethods.GetMethod('GetProcAddress', [reflection.bindingflags] "Public,Static", $null, [System.Reflection.CallingConventions]::Any, @((New-Object System.Runtime.InteropServices.HandleRef).GetType(), [string]), $null);
-
-    # Get a handle to the module specified
-    $Kern32Handle = $GetModuleHandle.Invoke($null, @($Module))
-    $tmpPtr = New-Object IntPtr
-    $HandleRef = New-Object System.Runtime.InteropServices.HandleRef($tmpPtr, $Kern32Handle)
-
-    # Return the address of the function
-    Write-Output $GetProcAddress.Invoke($null, @([System.Runtime.InteropServices.HandleRef]$HandleRef, $Procedure))
-  }
-   
 
   function local:Update-RegistryChanges {
-    $SHChangeNotifyAddr = Get-ProcAddress Shell32.dll SHChangeNotify
-    $SHChangeNotifyDelegate = Get-DelegateType @([UInt32], [UInt32], [IntPtr], [IntPtr]) ([Int])
-    $SHChangeNotify = [System.Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($SHChangeNotifyAddr, $SHChangeNotifyDelegate)
-    $SHChangeNotify.Invoke(0x8000000, 0, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
-  }
+    $code = @'
+    [System.Runtime.InteropServices.DllImport("Shell32.dll")] 
+    private static extern int SHChangeNotify(int eventId, int flags, IntPtr item1, IntPtr item2);
+    public static void Refresh() {
+        SHChangeNotify(0x8000000, 0, IntPtr.Zero, IntPtr.Zero);    
+    }
+'@ 
 
+    try {
+      Add-Type -MemberDefinition $code -Namespace SHChange -Name Notify
+    }
+    catch {}
+
+    try {
+      [SHChange.Notify]::Refresh()
+    }
+    catch {} 
+  }
   
+
   function local:Set-Icon {
     param (
       [Parameter( Position = 0, Mandatory = $True )]
@@ -410,118 +363,254 @@ function Set-FTA {
     } 
 
     
-  try {
-    $keyPath = "Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\$Extension\UserChoice"
-    Write-Verbose "Remove Extension UserChoice Key If Exist: $keyPath"
-    Remove-UserChoiceKey $keyPath
-  }
-  catch {
-    Write-Verbose "Extension UserChoice Key No Exist: $keyPath"
-  }
+    try {
+      $keyPath = "Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\$Extension\UserChoice"
+      Write-Verbose "Remove Extension UserChoice Key If Exist: $keyPath"
+      Remove-UserChoiceKey $keyPath
+    }
+    catch {
+      Write-Verbose "Extension UserChoice Key No Exist: $keyPath"
+    }
   
 
-  try {
-    $keyPath = "HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\$Extension\UserChoice"
-    [Microsoft.Win32.Registry]::SetValue($keyPath, "Hash", $ProgHash)
-    [Microsoft.Win32.Registry]::SetValue($keyPath, "ProgId", $ProgId)
-    Write-Verbose "Write Reg Extension UserChoice OK"
+    try {
+      $keyPath = "HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\$Extension\UserChoice"
+      [Microsoft.Win32.Registry]::SetValue($keyPath, "Hash", $ProgHash)
+      [Microsoft.Win32.Registry]::SetValue($keyPath, "ProgId", $ProgId)
+      Write-Verbose "Write Reg Extension UserChoice OK"
+    }
+    catch {
+      throw "Write Reg Extension UserChoice FAIL"
+    }
   }
-  catch {
-    throw "Write Reg Extension UserChoice FAIL"
-  }
-}
 
 
-function local:Write-ProtocolKeys {
-  param (
-    [Parameter( Position = 0, Mandatory = $True )]
-    [String]
-    $ProgId,
+  function local:Write-ProtocolKeys {
+    param (
+      [Parameter( Position = 0, Mandatory = $True )]
+      [String]
+      $ProgId,
 
-    [Parameter( Position = 1, Mandatory = $True )]
-    [String]
-    $Protocol,
+      [Parameter( Position = 1, Mandatory = $True )]
+      [String]
+      $Protocol,
 
-    [Parameter( Position = 2, Mandatory = $True )]
-    [String]
-    $ProgHash
-  )
+      [Parameter( Position = 2, Mandatory = $True )]
+      [String]
+      $ProgHash
+    )
       
 
-  try {
-    $keyPath = "HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\$Protocol\UserChoice"
-    Write-Verbose "Remove Protocol UserChoice Key If Exist: $keyPath"
-    Remove-Item -Path $keyPath -Recurse -ErrorAction Stop | Out-Null
+    try {
+      $keyPath = "HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\$Protocol\UserChoice"
+      Write-Verbose "Remove Protocol UserChoice Key If Exist: $keyPath"
+      Remove-Item -Path $keyPath -Recurse -ErrorAction Stop | Out-Null
     
-  }
-  catch {
-    Write-Verbose "Protocol UserChoice Key No Exist: $keyPath"
-  }
+    }
+    catch {
+      Write-Verbose "Protocol UserChoice Key No Exist: $keyPath"
+    }
   
 
-  try {
-    $keyPath = "HKEY_CURRENT_USER\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\$Protocol\UserChoice"
-    [Microsoft.Win32.Registry]::SetValue( $keyPath, "Hash", $ProgHash)
-    [Microsoft.Win32.Registry]::SetValue($keyPath, "ProgId", $ProgId)
-    Write-Verbose "Write Reg Protocol UserChoice OK"
-  }
-  catch {
-    throw "Write Reg Protocol UserChoice FAIL"
-  }
+    try {
+      $keyPath = "HKEY_CURRENT_USER\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\$Protocol\UserChoice"
+      [Microsoft.Win32.Registry]::SetValue( $keyPath, "Hash", $ProgHash)
+      [Microsoft.Win32.Registry]::SetValue($keyPath, "ProgId", $ProgId)
+      Write-Verbose "Write Reg Protocol UserChoice OK"
+    }
+    catch {
+      throw "Write Reg Protocol UserChoice FAIL"
+    }
     
-}
+  }
 
   
-function local:Get-UserExperience {
-  [OutputType([string])]
+  function local:Get-UserExperience {
+    [OutputType([string])]
       
-  $userExperienceSearch = "User Choice set via Windows User Experience"
-  $user32Path = [Environment]::GetFolderPath([Environment+SpecialFolder]::SystemX86) + "\Shell32.dll"
-  $fileStream = [System.IO.File]::Open($user32Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
-  $binaryReader = New-Object System.IO.BinaryReader($fileStream)
-  [Byte[]] $bytesData = $binaryReader.ReadBytes(5mb)
-  $fileStream.Close()
-  $dataString = [Text.Encoding]::Unicode.GetString($bytesData)
-  $position1 = $dataString.IndexOf($userExperienceSearch)
-  $position2 = $dataString.IndexOf("}", $position1)
+    $userExperienceSearch = "User Choice set via Windows User Experience"
+    $user32Path = [Environment]::GetFolderPath([Environment+SpecialFolder]::SystemX86) + "\Shell32.dll"
+    $fileStream = [System.IO.File]::Open($user32Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+    $binaryReader = New-Object System.IO.BinaryReader($fileStream)
+    [Byte[]] $bytesData = $binaryReader.ReadBytes(5mb)
+    $fileStream.Close()
+    $dataString = [Text.Encoding]::Unicode.GetString($bytesData)
+    $position1 = $dataString.IndexOf($userExperienceSearch)
+    $position2 = $dataString.IndexOf("}", $position1)
 
-  Write-Output $dataString.Substring($position1, $position2 - $position1 + 1)
-}
+    Write-Output $dataString.Substring($position1, $position2 - $position1 + 1)
+  }
   
 
-function local:Get-UserSid {
-  [OutputType([string])]
-  $userSid = ((New-Object System.Security.Principal.NTAccount([Environment]::UserName)).Translate([System.Security.Principal.SecurityIdentifier]).value).ToLower()
-  Write-Output $userSid
-}
+  function local:Get-UserSid {
+    [OutputType([string])]
+    $userSid = ((New-Object System.Security.Principal.NTAccount([Environment]::UserName)).Translate([System.Security.Principal.SecurityIdentifier]).value).ToLower()
+    Write-Output $userSid
+  }
 
 
-function local:Get-HexDateTime {
-  [OutputType([string])]
-
-  $now = [DateTime]::Now
-  $dateTime = [DateTime]::New($now.Year, $now.Month, $now.Day, $now.Hour, $now.Minute, 0)
-  $fileTime = $dateTime.ToFileTime()
-  $hi = ($fileTime -shr 32)
-  $low = ($fileTime -band 0xFFFFFFFFL)
-  $dateTimeHex = ($hi.ToString("X8") + $low.ToString("X8")).ToLower()
-  Write-Output $dateTimeHex
-}
-
-
-function local:Get-Hash {
-  param (
+  function local:Get-HexDateTime {
     [OutputType([string])]
 
-    [Parameter( Position = 0, Mandatory = $True )]
-    [String]
-    $ProgId,
+    $now = [DateTime]::Now
+    $dateTime = [DateTime]::New($now.Year, $now.Month, $now.Day, $now.Hour, $now.Minute, 0)
+    $fileTime = $dateTime.ToFileTime()
+    $hi = ($fileTime -shr 32)
+    $low = ($fileTime -band 0xFFFFFFFFL)
+    $dateTimeHex = ($hi.ToString("X8") + $low.ToString("X8")).ToLower()
+    Write-Output $dateTimeHex
+  }
+  
+  function Get-Hash {
+    [CmdletBinding()]
+    param (
+      [Parameter( Position = 0, Mandatory = $True )]
+      [string]
+      $BaseInfo
+    )
 
-    [Parameter( Position = 1, Mandatory = $True )]
-    [String]
-    $Extension
-  )
+
+    function local:Get-ShiftRight {
+      [CmdletBinding()]
+      param (
+        [Parameter( Position = 0, Mandatory = $true)]
+        [long] $iValue, 
+            
+        [Parameter( Position = 1, Mandatory = $true)]
+        [int] $iCount 
+      )
     
+      if ($iValue -band 0x80000000) {
+        Write-Output (( $iValue -shr $iCount) -bxor 0xFFFF0000)
+      }
+      else {
+        Write-Output  ($iValue -shr $iCount)
+      }
+    }
+    
+
+    function local:Get-Long {
+      [CmdletBinding()]
+      param (
+        [Parameter( Position = 0, Mandatory = $true)]
+        [byte[]] $Bytes,
+    
+        [Parameter( Position = 1)]
+        [int] $Index = 0
+      )
+    
+      Write-Output ([BitConverter]::ToInt32($Bytes, $Index))
+    }
+    
+
+    function local:Convert-Int32 {
+      param (
+        [Parameter( Position = 0, Mandatory = $true)]
+        $Value
+      )
+    
+      [byte[]] $bytes = [BitConverter]::GetBytes($Value)
+      return [BitConverter]::ToInt32( $bytes, 0) 
+    }
+
+    [Byte[]] $bytesBaseInfo = [System.Text.Encoding]::Unicode.GetBytes($baseInfo) 
+    $bytesBaseInfo += 0x00, 0x00  
+    
+    $MD5 = New-Object -TypeName System.Security.Cryptography.MD5CryptoServiceProvider
+    [Byte[]] $bytesMD5 = $MD5.ComputeHash($bytesBaseInfo)
+    
+    $lengthBase = ($baseInfo.Length * 2) + 2 
+    $length = (($lengthBase -band 4) -le 1) + (Get-ShiftRight $lengthBase  2) - 1
+    $base64Hash = ""
+
+    if ($length -gt 1) {
+    
+      $map = @{PDATA = 0; CACHE = 0; COUNTER = 0 ; INDEX = 0; MD51 = 0; MD52 = 0; OUTHASH1 = 0; OUTHASH2 = 0;
+        R0 = 0; R1 = @(0, 0); R2 = @(0, 0); R3 = 0; R4 = @(0, 0); R5 = @(0, 0); R6 = @(0, 0); R7 = @(0, 0)
+      }
+    
+      $map.CACHE = 0
+      $map.OUTHASH1 = 0
+      $map.PDATA = 0
+      $map.MD51 = (((Get-Long $bytesMD5) -bor 1) + 0x69FB0000L)
+      $map.MD52 = ((Get-Long $bytesMD5 4) -bor 1) + 0x13DB0000L
+      $map.INDEX = Get-ShiftRight ($length - 2) 1
+      $map.COUNTER = $map.INDEX + 1
+    
+      while ($map.COUNTER) {
+        $map.R0 = Convert-Int32 ((Get-Long $bytesBaseInfo $map.PDATA) + [long]$map.OUTHASH1)
+        $map.R1[0] = Convert-Int32 (Get-Long $bytesBaseInfo ($map.PDATA + 4))
+        $map.PDATA = $map.PDATA + 8
+        $map.R2[0] = Convert-Int32 (($map.R0 * ([long]$map.MD51)) - (0x10FA9605L * ((Get-ShiftRight $map.R0 16))))
+        $map.R2[1] = Convert-Int32 ((0x79F8A395L * ([long]$map.R2[0])) + (0x689B6B9FL * (Get-ShiftRight $map.R2[0] 16)))
+        $map.R3 = Convert-Int32 ((0xEA970001L * $map.R2[1]) - (0x3C101569L * (Get-ShiftRight $map.R2[1] 16) ))
+        $map.R4[0] = Convert-Int32 ($map.R3 + $map.R1[0])
+        $map.R5[0] = Convert-Int32 ($map.CACHE + $map.R3)
+        $map.R6[0] = Convert-Int32 (($map.R4[0] * [long]$map.MD52) - (0x3CE8EC25L * (Get-ShiftRight $map.R4[0] 16)))
+        $map.R6[1] = Convert-Int32 ((0x59C3AF2DL * $map.R6[0]) - (0x2232E0F1L * (Get-ShiftRight $map.R6[0] 16)))
+        $map.OUTHASH1 = Convert-Int32 ((0x1EC90001L * $map.R6[1]) + (0x35BD1EC9L * (Get-ShiftRight $map.R6[1] 16)))
+        $map.OUTHASH2 = Convert-Int32 ([long]$map.R5[0] + [long]$map.OUTHASH1)
+        $map.CACHE = ([long]$map.OUTHASH2)
+        $map.COUNTER = $map.COUNTER - 1
+      }
+
+      [Byte[]] $outHash = @(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
+      [byte[]] $buffer = [BitConverter]::GetBytes($map.OUTHASH1)
+      $buffer.CopyTo($outHash, 0)
+      $buffer = [BitConverter]::GetBytes($map.OUTHASH2)
+      $buffer.CopyTo($outHash, 4)
+    
+      $map = @{PDATA = 0; CACHE = 0; COUNTER = 0 ; INDEX = 0; MD51 = 0; MD52 = 0; OUTHASH1 = 0; OUTHASH2 = 0;
+        R0 = 0; R1 = @(0, 0); R2 = @(0, 0); R3 = 0; R4 = @(0, 0); R5 = @(0, 0); R6 = @(0, 0); R7 = @(0, 0)
+      }
+    
+      $map.CACHE = 0
+      $map.OUTHASH1 = 0
+      $map.PDATA = 0
+      $map.MD51 = ((Get-Long $bytesMD5) -bor 1)
+      $map.MD52 = ((Get-Long $bytesMD5 4) -bor 1)
+      $map.INDEX = Get-ShiftRight ($length - 2) 1
+      $map.COUNTER = $map.INDEX + 1
+
+      while ($map.COUNTER) {
+        $map.R0 = Convert-Int32 ((Get-Long $bytesBaseInfo $map.PDATA) + ([long]$map.OUTHASH1))
+        $map.PDATA = $map.PDATA + 8
+        $map.R1[0] = Convert-Int32 ($map.R0 * [long]$map.MD51)
+        $map.R1[1] = Convert-Int32 ((0xB1110000L * $map.R1[0]) - (0x30674EEFL * (Get-ShiftRight $map.R1[0] 16)))
+        $map.R2[0] = Convert-Int32 ((0x5B9F0000L * $map.R1[1]) - (0x78F7A461L * (Get-ShiftRight $map.R1[1] 16)))
+        $map.R2[1] = Convert-Int32 ((0x12CEB96DL * (Get-ShiftRight $map.R2[0] 16)) - (0x46930000L * $map.R2[0]))
+        $map.R3 = Convert-Int32 ((0x1D830000L * $map.R2[1]) + (0x257E1D83L * (Get-ShiftRight $map.R2[1] 16)))
+        $map.R4[0] = Convert-Int32 ([long]$map.MD52 * ([long]$map.R3 + (Get-Long $bytesBaseInfo ($map.PDATA - 4))))
+        $map.R4[1] = Convert-Int32 ((0x16F50000L * $map.R4[0]) - (0x5D8BE90BL * (Get-ShiftRight $map.R4[0] 16)))
+        $map.R5[0] = Convert-Int32 ((0x96FF0000L * $map.R4[1]) - (0x2C7C6901L * (Get-ShiftRight $map.R4[1] 16)))
+        $map.R5[1] = Convert-Int32 ((0x2B890000L * $map.R5[0]) + (0x7C932B89L * (Get-ShiftRight $map.R5[0] 16)))
+        $map.OUTHASH1 = Convert-Int32 ((0x9F690000L * $map.R5[1]) - (0x405B6097L * (Get-ShiftRight ($map.R5[1]) 16)))
+        $map.OUTHASH2 = Convert-Int32 ([long]$map.OUTHASH1 + $map.CACHE + $map.R3) 
+        $map.CACHE = ([long]$map.OUTHASH2)
+        $map.COUNTER = $map.COUNTER - 1
+      }
+    
+      $buffer = [BitConverter]::GetBytes($map.OUTHASH1)
+      $buffer.CopyTo($outHash, 8)
+      $buffer = [BitConverter]::GetBytes($map.OUTHASH2)
+      $buffer.CopyTo($outHash, 12)
+    
+      [Byte[]] $outHashBase = @(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
+      $hashValue1 = ((Get-Long $outHash 8) -bxor (Get-Long $outHash))
+      $hashValue2 = ((Get-Long $outHash 12) -bxor (Get-Long $outHash 4))
+    
+      $buffer = [BitConverter]::GetBytes($hashValue1)
+      $buffer.CopyTo($outHashBase, 0)
+      $buffer = [BitConverter]::GetBytes($hashValue2)
+      $buffer.CopyTo($outHashBase, 4)
+      $base64Hash = [Convert]::ToBase64String($outHashBase) 
+    }
+
+    Write-Output $base64Hash
+  }
+
+  Write-Verbose "Getting Hash For $ProgId   $Extension"
+
   $userSid = Get-UserSid
   $userExperience = Get-UserExperience
   $userDateTime = Get-HexDateTime
@@ -530,138 +619,29 @@ function local:Get-Hash {
   Write-Debug "UserExperience: $userExperience"
 
   $baseInfo = "$Extension$userSid$ProgId$userDateTime$userExperience".ToLower()
-  Write-Debug "baseInfo: $baseInfo"
+  Write-Verbose "baseInfo: $baseInfo"
 
-   
-  $VirtualAllocAddr = Get-ProcAddress kernel32.dll VirtualAlloc
-  $VirtualAllocDelegate = Get-DelegateType @([IntPtr], [UInt32], [UInt32], [UInt32]) ([IntPtr])
-  $VirtualAlloc = [System.Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($VirtualAllocAddr, $VirtualAllocDelegate)
-    
-  $VirtualFreeAddr = Get-ProcAddress kernel32.dll VirtualFree
-  $VirtualFreeDelegate = Get-DelegateType @([IntPtr], [Uint32], [UInt32]) ([Bool])
-  $VirtualFree = [System.Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($VirtualFreeAddr, $VirtualFreeDelegate)
-    
-  $RtlMoveMemoryAddr = Get-ProcAddress kernel32.dll RtlMoveMemory
-  $RtlMoveMemoryDelegate = Get-DelegateType @([IntPtr], [Byte[]], [UInt32] ) ([void])
-  $RtlMoveMemory = [System.Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($RtlMoveMemoryAddr, $RtlMoveMemoryDelegate)
-    
+  $progHash = Get-Hash $baseInfo
+  Write-Verbose "Hash: $progHash"
+  
+  #Handle Extension Or Protocol
+  if ($Extension.Contains(".")) {
+    Write-Verbose "Write Registry Extension: $Extension"
+    Write-ExtensionKeys $ProgId $Extension $progHash
 
-  #Select Hash Algorithm
-  if ($env:Processor_Architecture -eq "x86") {
-    Write-Verbose "Using X86 Algorithm"
-    [Byte[]] $bytesAlgorithm = [Convert]::FromBase64String(
-      @("VYnlU4HswAAAAItFDMHoAolF+ItFDIPgBIXAdASDbfgBi0UIiUXMi0X4iUXEi0UQiUXAjYVE////iUW8i0XEiUX0g33EAXYKi0XE"
-        "g+ABhcB0CrgAAAAA6fIGAADHRfAAAAAAx0XsAAAAAItFwIsAg8gBBQAA+2mJReiLRcCDwASLAIPIAQUAANsTiUW4i0XEg+gC0eiD"
-        "wAGJReSDbfQCi0XMixCLRewB0IlFtItFzIPABIlFsItF6A+vRbSJwotFtMHoEGnABZb6ECnCidBp0JWj+HmLRegPr0W0icGLRbTB"
-        "6BBpwAWW+hApwYnIwegQacCfa5toAdCJRayLRaxp0AEAl+qLRazB6BBpwGkVEDwpwonQiUWoi1Woi0XwAdCJRaSLRbCLEItFqAHQ"
-        "iUWgi0Wwg8AEiUXMi0XAiwCDyAEFAAD7aYlF6ItFuA+vRaCJwotFoMHoEGnAJezoPCnCidBp0C2vGCqLRbgPr0WgicGLRaDB6BBp"
-        "wCXs6DwpwYnIwegQacDx4Gv9idMpw4tFuA+vRaCJwotFoMHoEGnAJezoPCnCidBp0C2vw1mLRbgPr0WgicGLRaDB6BBpwCXs6Dwp"
-        "wYnIwegQacDx4DIiKcKJ0MHoEGnAyR69NQHYiUXsi1Wki0XsAdCJRfCDbeQBg33kAA+Fov7//4N99AEPhToBAACLRcyLEItF7AHC"
-        "i0XAiwCDyAFpwJWj+HktAADpfw+v0ItFzIsIi0XsAcjB6BBpwOl/NiGJ0ynDi0XMixCLRewBwotFwIsAg8gBBQAA+2kPr9CLRcyL"
-        "CItF7AHIwegQacAFlvoQKcKJ0MHoEGnAn2ubaAHYiUWci0WcadABAJfqi0WcwegQacBpFRA8KcKJ0IlFmItFuA+vRZiJwotFmMHo"
-        "EGnAJezoPCnCidBp0C2vGCqLRbgPr0WYicGLRZjB6BBpwCXs6DwpwYnIwegQacDx4Gv9idMpw4tFuA+vRZiJwotFmMHoEGnAJezo"
-        "PCnCidBp0C2vw1mLRbgPr0WYicGLRZjB6BBpwCXs6DwpwYnIwegQacDx4DIiKcKJ0MHoEGnAyR69NQHYiUXsi1Xsi0WYAcKLRfAB"
-        "0IlF8MZFlwGLRbyNUASLRfCJAotFvItV7IkQi0UIiUXIi0X4iUWQi0UQiUWMjYU8////iUWIi0WQiUXgg32QAXYKi0WQg+ABhcB0"
-        "CrgAAAAA6b8DAADHRdwAAAAAi0WMiwCDyAGJRdjHRdQAAAAAi0WMg8AEiwCDyAGJRYSLRZCD6ALR6IPAAYlF0INt4AKLRciLEItF"
-        "1AHQiUWAi0XIg8AEiYV8////i0XYacAAABGxD69FgInCi0XYD69FgMHoEGnA705nMCnCidCJhXj///+LhXj///9p0AAAn1uLhXj/"
-        "///B6BBpwGGk93gpwonQwegQadAAAMc7i4V4////acgAAJ9bi4V4////wegQacBhpPd4KcGJyMHoEGnIbbnOEouFeP///8HoEGnA"
-        "AACz6QHIwegQacCDHX4lAdCJhXT///+LVdyLhXT///8B0ImFcP///4uFfP///4sQi4V0////AcKLRYQPr8KJhWz///+LhXz///+D"
-        "wASJRciLhWz////B6BBpwAAA9ZP32InBi4Vs////adAAAPUWi4Vs////wegQacAL6YtdKcKJ0MHoEGnAAWl8LCnBiciJhWj///+L"
-        "hWj////B6BBpwIkrk3yJhWT///+LhWj///9pwAAAiSuJhWD///+LRYyLAIPIAYlF2IuVYP///4uFZP///wHQacAAAGmficGLlWD/"
-        "//+LhWT///8B0MHoEGnAl2BbQCnBiciJRdSLlXD///+LRdQB0IlF3INt0AGDfdAAD4VI/v//g33gAQ+FeAEAAItFjIsAg8gBicGL"
-        "RciLEItF1AHQD6/BadAAABGxi0WMiwCDyAGJw4tFyIsIi0XUAcgPr8PB6BBpwO9OZzApwonQiYVc////i4Vc////adAAAJ9bi4Vc"
-        "////wegQacBhpPd4KcKJ0MHoEGnQAADHO4uFXP///2nIAACfW4uFXP///8HoEGnAYaT3eCnBicjB6BBpyG25zhKLhVz////B6BBp"
-        "wAAAs+kByMHoEGnAgx1+JQHQiYVY////i1Xci4VY////AdCJhVT///+LRYQPr4VY////adAAAPUWi0WED6+FWP///8HoEGnAC+mL"
-        "XSnCidCJhVD///+LhVD///9p0AAA/5aLhVD////B6BBpwAFpfCwpwonQwegQadAAADHyi4VQ////acgAAP+Wi4VQ////wegQacAB"
-        "aXwsKcGJyMHoEGnIiSuTfIuFUP///8HoEGnAAACJXCnBicjB6BBpwJdgW0ApwonQiUXUi5VU////i0XUAdCJRdzGRZcBi0WIjVAE"
-        "i0XciQKLRYiLVdSJEMeFTP///wAAAACLlUT///+LhTz///8xwotFFIkQi0UUg8AEi41I////i5VA////McqJEIuFTP///4HEwAAA"
-        "AFtdwhAA") -join '')
   }
   else {
-    Write-Verbose "Using X64 Algorithm"
-    [Byte[]] $bytesAlgorithm = [Convert]::FromBase64String( 
-      @("VUiJ5UiB7PAAAABIiU0QiVUYTIlFIEyJTSiLRRjB6AKJRfyLRRiD4ASFwHQEg238AUiLRRBIiUXIi0X8iUW8SItFIEiJRbBIjYUg"
-        "////SIlFqItFvIlF+IN9vAF2CotFvIPgAYXAdAq4AAAAAOlwBwAAx0X0AAAAAMdF8AAAAABIi0WwiwCDyAEFAAD7aYlF7EiLRbBI"
-        "g8AEiwCDyAEFAADbE4lFpItFvIPoAtHog8ABiUXog234AkiLRciLEItF8AHQiUWgSItFyEiDwARIiUWYi0XsD69FoInCi0WgwegQ"
-        "acAFlvoQKcKJ0GnQlaP4eYtF7A+vRaCJwYtFoMHoEGnABZb6ECnBicjB6BBpwJ9rm2gB0IlFlItFlGnQAQCX6otFlMHoEGnAaRUQ"
-        "PCnCidCJRZCLVZCLRfQB0IlFjEiLRZiLEItFkAHQiUWISItFmEiDwARIiUXISItFsIsAg8gBBQAA+2mJReyLRaQPr0WIicKLRYjB"
-        "6BBpwCXs6DwpwonQadAtrxgqi0WkD69FiInBi0WIwegQacAl7Og8KcGJyMHoEGnA8eBr/SnCQYnQi0WkD69FiInCi0WIwegQacAl"
-        "7Og8KcKJ0GnQLa/DWYtFpA+vRYiJwYtFiMHoEGnAJezoPCnBicjB6BBpwPHgMiIpwonQwegQacDJHr01RAHAiUXwi1WMi0XwAdCJ"
-        "RfSDbegBg33oAA+Fl/7//4N9+AEPhUQBAABIi0XIixCLRfABwkiLRbCLAIPIAWnAlaP4eS0AAOl/D6/QSItFyIsIi0XwAcjB6BBp"
-        "wOl/NiEpwkGJ0EiLRciLEItF8AHCSItFsIsAg8gBBQAA+2kPr9BIi0XIiwiLRfAByMHoEGnABZb6ECnCidDB6BBpwJ9rm2hEAcCJ"
-        "RYSLRYRp0AEAl+qLRYTB6BBpwGkVEDwpwonQiUWAi0WkD69FgInCi0WAwegQacAl7Og8KcKJ0GnQLa8YKotFpA+vRYCJwYtFgMHo"
-        "EGnAJezoPCnBicjB6BBpwPHga/0pwkGJ0ItFpA+vRYCJwotFgMHoEGnAJezoPCnCidBp0C2vw1mLRaQPr0WAicGLRYDB6BBpwCXs"
-        "6DwpwYnIwegQacDx4DIiKcKJ0MHoEGnAyR69NUQBwIlF8ItV8ItFgAHCi0X0AdCJRfTGhX////8BSItFqEiNUASLRfSJAkiLRaiL"
-        "VfCJEEiLRRBIiUXAi0X8iYV4////SItFIEiJhXD///9IjYUQ////SImFaP///4uFeP///4lF5IO9eP///wF2DYuFeP///4PgAYXA"
-        "dAq4AAAAAOkHBAAAx0XgAAAAAEiLhXD///+LAIPIAYlF3MdF2AAAAABIi4Vw////SIPABIsAg8gBiYVk////i4V4////g+gC0eiD"
-        "wAGJRdSDbeQCSItFwIsQi0XYAdCJhWD///9Ii0XASIPABEiJhVj///+LRdxpwAAAEbEPr4Vg////icKLRdwPr4Vg////wegQacDv"
-        "TmcwKcKJ0ImFVP///4uFVP///2nQAACfW4uFVP///8HoEGnAYaT3eCnCidDB6BBp0AAAxzuLhVT///9pyAAAn1uLhVT////B6BBp"
-        "wGGk93gpwYnIwegQachtuc4Si4VU////wegQacAAALPpAcjB6BBpwIMdfiUB0ImFUP///4tV4IuFUP///wHQiYVM////SIuFWP//"
-        "/4sQi4VQ////AcKLhWT///8Pr8KJhUj///9Ii4VY////SIPABEiJRcCLhUj////B6BBpwAAA9ZP32InBi4VI////adAAAPUWi4VI"
-        "////wegQacAL6YtdKcKJ0MHoEGnAAWl8LCnBiciJhUT///+LhUT////B6BBpwIkrk3yJhUD///+LhUT///9pwAAAiSuJhTz///9I"
-        "i4Vw////iwCDyAGJRdyLlTz///+LhUD///8B0GnAAABpn4nBi5U8////i4VA////AdDB6BBpwJdgW0ApwYnIiUXYi5VM////i0XY"
-        "AdCJReCDbdQBg33UAA+FMP7//4N95AEPhYoBAABIi4Vw////iwCDyAGJwUiLRcCLEItF2AHQD6/BadAAABGxSIuFcP///4sAg8gB"
-        "QYnASItFwIsIi0XYAchBD6/AwegQacDvTmcwKcKJ0ImFOP///4uFOP///2nQAACfW4uFOP///8HoEGnAYaT3eCnCidDB6BBp0AAA"
-        "xzuLhTj///9pyAAAn1uLhTj////B6BBpwGGk93gpwYnIwegQachtuc4Si4U4////wegQacAAALPpAcjB6BBpwIMdfiUB0ImFNP//"
-        "/4tV4IuFNP///wHQiYUw////i4Vk////D6+FNP///2nQAAD1FouFZP///w+vhTT////B6BBpwAvpi10pwonQiYUs////i4Us////"
-        "adAAAP+Wi4Us////wegQacABaXwsKcKJ0MHoEGnQAAAx8ouFLP///2nIAAD/louFLP///8HoEGnAAWl8LCnBicjB6BBpyIkrk3yL"
-        "hSz////B6BBpwAAAiVwpwYnIwegQacCXYFtAKcKJ0IlF2IuVMP///4tF2AHQiUXgxoV/////AUiLhWj///9IjVAEi0XgiQJIi4Vo"
-        "////i1XYiRDHhSj///8AAAAAi5Ug////i4UQ////McJIi0UoiRBIi0UoSIPABIuNJP///4uVFP///zHKiRCLhSj///9IgcTwAAAA"
-        "XcOQkJCQkA==") -join '')
+    Write-Verbose "Write Registry Protocol: $Extension"
+    Write-ProtocolKeys $ProgId $Extension $progHash
   }
 
-  $BaseAddress = $VirtualAlloc.Invoke([IntPtr]::Zero, $bytesAlgorithm.Length + 1, 0x3000, 0x40) # (Reserve|Commit, RWX)
-  $codeAlgorithm = $BaseAddress
-  $codeAlgorithmDelegate = Get-DelegateType @([Byte[]], [UInt32], [Byte[]], [IntPtr]) ([UInt32])
-  $codeAlgorithm = [System.Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($codeAlgorithm, $codeAlgorithmDelegate)
-  $RtlMoveMemory.Invoke($BaseAddress, $bytesAlgorithm, $bytesAlgorithm.Length + 1) #Copy Algorithm 
-
-  [Byte[]] $bytesBaseInfo = [System.Text.Encoding]::Unicode.GetBytes($baseInfo) 
-  $bytesBaseInfo += 0x00, 0x00  
-
-  $MD5 = New-Object -TypeName System.Security.Cryptography.MD5CryptoServiceProvider
-  [Byte[]] $bytesMD5 = $MD5.ComputeHash($bytesBaseInfo)
-  Write-Debug "MD5: $bytesMD5"
-
-  $length = ($baseInfo.Length * 2) + 2 
-  [Byte[]] $outHash = @(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
-    
-  [IntPtr]$alloc = [System.Runtime.InteropServices.Marshal]::AllocHGlobal(8)
-  $codeAlgorithm.Invoke($bytesBaseInfo, $length, $bytesMD5, $alloc) | Out-Null
-  [System.Runtime.InteropServices.Marshal]::Copy($alloc, $outHash, 0 , 8) 
-  [System.Runtime.InteropServices.Marshal]::FreeHGlobal($alloc) 
-    
-  $hexOutHash = [System.BitConverter]::ToString($outHash) 
-  Write-Debug "Hex Hash: $hexOutHash"
-  $base64Hash = [Convert]::ToBase64String($outHash) 
-  $VirtualFree.Invoke($BaseAddress, $bytesAlgorithm.Length + 1, 0x8000) | Out-Null # MEM_RELEASE (0x8000)
-
-  Write-Output $base64Hash
-}
-  
-Write-Verbose "Getting Hash For $ProgId   $Extension"
-$progHash = Get-Hash $ProgId $Extension
-Write-Verbose "Hash: $progHash"
-  
-
-#Handle Extension Or Protocol
-if ($Extension.Contains(".")) {
-  Write-Verbose "Write Registry Extension: $Extension"
-  Write-ExtensionKeys $ProgId $Extension $progHash
-
-}
-else {
-  Write-Verbose "Write Registry Protocol: $Extension"
-  Write-ProtocolKeys $ProgId $Extension $progHash
-}
-
    
-if ($Icon) {
-  Write-Verbose  "Set Icon: $Icon"
-  Set-Icon $ProgId $Icon
-}
+  if ($Icon) {
+    Write-Verbose  "Set Icon: $Icon"
+    Set-Icon $ProgId $Icon
+  }
 
-Update-RegistryChanges 
+  Update-RegistryChanges 
 
 }
 
