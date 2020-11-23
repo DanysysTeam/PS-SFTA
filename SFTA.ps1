@@ -73,6 +73,33 @@ function Get-FTA {
   
 }
 
+function Get-PTA {
+  [CmdletBinding()]
+  param (
+    [Parameter(Mandatory = $false)]
+    [String]
+    $Protocol
+  )
+
+  if ($Protocol) {
+    Write-Verbose "Get Protocol Type Association for $Protocol"
+
+    $assocFile = (Get-ItemProperty "HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\$Protocol\UserChoice"-ErrorAction SilentlyContinue).ProgId
+    Write-Output $assocFile
+  }
+  else {
+    Write-Verbose "Get Protocol Type Association List"
+
+    $assocList = Get-ChildItem HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\* |
+    ForEach-Object {
+      $progId = (Get-ItemProperty "$($_.PSParentPath)\$($_.PSChildName)\UserChoice" -ErrorAction SilentlyContinue).ProgId
+      if ($progId) {
+        "$($_.PSChildName), $progId"
+      }
+    }
+    Write-Output $assocList
+  }
+}
 
 function Register-FTA {
   [CmdletBinding()]
