@@ -13,6 +13,8 @@ PowerShell Set File/Protocol Type Association Default Application Windows 10
 * Set Protocol Association.
 * Get File Type Association.
 * List File Type Association.
+* Get Protocol Type Association.
+* List Protocol Type Association.
 * Register Application.
 * Unregister Application.
 
