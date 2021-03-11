@@ -11,7 +11,7 @@
     Credits    : https://bbs.pediy.com/thread-213954.htm
                  LMongrain - Hash Algorithm PureBasic Version
     License    : MIT License
-    Copyright  : 2020 Danysys. <danysys.com>
+    Copyright  : 2021 Danysys. <danysys.com>
   
 .EXAMPLE
     Get-FTA

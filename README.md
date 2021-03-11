@@ -64,4 +64,4 @@ See [CHANGELOG.md](CHANGELOG.md)
 
 Usage is provided under the [MIT](https://choosealicense.com/licenses/mit/) License.
 
-Copyright © 2020, [Danysys.](https://www.danysys.com)
+Copyright © 2021, [Danysys.](https://www.danysys.com)
