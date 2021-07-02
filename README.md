@@ -51,6 +51,13 @@ Register-FTA "C:\SumatraPDF.exe" .pdf -Icon "shell32.dll,100"
 
 ```
 
+## Additional Instructions
+
+##### Set Sumatra PDF as Default .pdf reader from Windows Command Processor (cmd.exe):
+```powershell
+powershell -ExecutionPolicy Bypass -command "& { . .\SFTA.ps1; Set-FTA 'Applications\SumatraPDF.exe' '.pdf' }"
+
+```
 
 
 ## Release History
