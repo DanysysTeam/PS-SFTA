@@ -42,6 +42,7 @@
     
 #>
 
+Add-Type -AssemblyName System.DirectoryServices.AccountManagement
 
 function Get-FTA {
   [CmdletBinding()]
@@ -471,7 +472,7 @@ function Set-FTA {
 
   function local:Get-UserSid {
     [OutputType([string])]
-    $userSid = ((New-Object System.Security.Principal.NTAccount([Environment]::UserName)).Translate([System.Security.Principal.SecurityIdentifier]).value).ToLower()
+    $userSid = ([System.DirectoryServices.AccountManagement.UserPrincipal]::Current).SID.Value.ToLower()
     Write-Output $userSid
   }
 
