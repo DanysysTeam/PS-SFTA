@@ -42,7 +42,7 @@
     
 #>
 
-Add-Type -AssemblyName System.DirectoryServices.AccountManagement
+
 
 function Get-FTA {
   [CmdletBinding()]
@@ -279,7 +279,10 @@ function Set-FTA {
     $Extension,
       
     [String]
-    $Icon
+    $Icon,
+
+    [switch]
+    $DomainSID
   )
   
   if (Test-Path -Path $ProgId) {
@@ -472,9 +475,21 @@ function Set-FTA {
 
   function local:Get-UserSid {
     [OutputType([string])]
+    $userSid = ((New-Object System.Security.Principal.NTAccount([Environment]::UserName)).Translate([System.Security.Principal.SecurityIdentifier]).value).ToLower()
+    Write-Output $userSid
+  }
+
+  #use in this special case
+  #https://github.com/DanysysTeam/PS-SFTA/pull/7
+  function local:Get-UserSidDomain {
+    if (-not ("System.DirectoryServices.AccountManagement" -as [type])) {
+      Add-Type -AssemblyName System.DirectoryServices.AccountManagement
+    }
+    [OutputType([string])]
     $userSid = ([System.DirectoryServices.AccountManagement.UserPrincipal]::Current).SID.Value.ToLower()
     Write-Output $userSid
   }
+
 
 
   function local:Get-HexDateTime {
@@ -638,8 +653,8 @@ function Set-FTA {
   }
 
   Write-Verbose "Getting Hash For $ProgId   $Extension"
-
-  $userSid = Get-UserSid
+  If ($DomainSID.IsPresent) { Write-Verbose  "Use Get-UserSidDomain" } Else { Write-Verbose  "Use Get-UserSid" } 
+  $userSid = If ($DomainSID.IsPresent) { Get-UserSidDomain } Else { Get-UserSid } 
   $userExperience = Get-UserExperience
   $userDateTime = Get-HexDateTime
   Write-Debug "UserDateTime: $userDateTime"
