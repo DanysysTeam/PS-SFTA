@@ -1,17 +1,17 @@
 <#
 .SYNOPSIS
-    Set File Type Association Windows 8/10
+    Set File Type Association Windows 8/10/11
 
 .DESCRIPTION
-    Set File/Protocol Type Association Default Application Windows 8/10
+    Set File/Protocol Type Association Default Application Windows 8/10/11
 
 .NOTES
-    Version    : 1.1.0
+    Version    : 1.2.0
     Author(s)  : Danyfirex & Dany3j
     Credits    : https://bbs.pediy.com/thread-213954.htm
                  LMongrain - Hash Algorithm PureBasic Version
     License    : MIT License
-    Copyright  : 2021 Danysys. <danysys.com>
+    Copyright  : 2022 Danysys. <danysys.com>
   
 .EXAMPLE
     Get-FTA
@@ -56,7 +56,7 @@ function Get-FTA {
   if ($Extension) {
     Write-Verbose "Get File Type Association for $Extension"
     
-    $assocFile = (Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\$Extension\UserChoice"-ErrorAction SilentlyContinue).ProgId
+    $assocFile = (Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\$Extension\UserChoice" -ErrorAction SilentlyContinue).ProgId
     Write-Output $assocFile
   }
   else {
@@ -85,7 +85,7 @@ function Get-PTA {
   if ($Protocol) {
     Write-Verbose "Get Protocol Type Association for $Protocol"
 
-    $assocFile = (Get-ItemProperty "HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\$Protocol\UserChoice"-ErrorAction SilentlyContinue).ProgId
+    $assocFile = (Get-ItemProperty "HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\$Protocol\UserChoice" -ErrorAction SilentlyContinue).ProgId
     Write-Output $assocFile
   }
   else {
@@ -149,7 +149,7 @@ function Register-FTA {
     Write-Verbose "Register ProgId and ProgId Command OK"
   }
   catch {
-    throw "Register ProgId and ProgId Command FAIL"
+    throw "Register ProgId and ProgId Command FAILED"
   }
   
   Set-FTA -ProgId $ProgId -Extension $Extension -Icon $Icon
@@ -253,7 +253,7 @@ function Remove-FTA {
   try {
     $keyPath = "HKCU:\SOFTWARE\Classes\$Extension\OpenWithProgids"
     Write-Verbose "Remove Property If Exist: $keyPath Property $ProgId"
-    Remove-ItemProperty -Path $keyPath -Name $ProgId  -ErrorAction Stop | Out-Null
+    Remove-ItemProperty -Path $keyPath -Name $ProgId -ErrorAction Stop | Out-Null
     
   }
   catch {
@@ -292,6 +292,59 @@ function Set-FTA {
   Write-Verbose "ProgId: $ProgId"
   Write-Verbose "Extension/Protocol: $Extension"
 
+  
+  #Write required Application Ids to ApplicationAssociationToasts
+  #When more than one application associated with an Extension/Protocol is installed ApplicationAssociationToasts need to be updated
+  function local:Write-RequiredApplicationAssociationToasts {
+    param (
+      [Parameter( Position = 0, Mandatory = $True )]
+      [String]
+      $ProgId,
+
+      [Parameter( Position = 1, Mandatory = $True )]
+      [String]
+      $Extension
+    )
+    
+    try {
+      $keyPath = "HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\ApplicationAssociationToasts"
+      [Microsoft.Win32.Registry]::SetValue($keyPath, $ProgId + "_" + $Extension, 0x0) 
+      Write-Verbose ("Write Reg ApplicationAssociationToasts OK: " + $ProgId + "_" + $Extension)
+    }
+    catch {
+      Write-Verbose ("Write Reg ApplicationAssociationToasts FAILED: " + $ProgId + "_" + $Extension)
+    }
+    
+    $allApplicationAssociationToasts = Get-ChildItem -Path HKLM:\SOFTWARE\Classes\$Extension\OpenWithList\* -ErrorAction SilentlyContinue | 
+    ForEach-Object {
+      "Applications\$($_.PSChildName)"
+    }
+
+    $allApplicationAssociationToasts += @(
+      ForEach ($item in (Get-ItemProperty -Path HKLM:\SOFTWARE\Classes\$Extension\OpenWithProgids -ErrorAction SilentlyContinue).PSObject.Properties ) {
+        if ([string]::IsNullOrEmpty($item.Value) -and $item -ne "(default)") {
+          $item.Name
+        }
+      })
+
+    
+    $allApplicationAssociationToasts += Get-ChildItem -Path HKLM:SOFTWARE\Clients\StartMenuInternet\* , HKCU:SOFTWARE\Clients\StartMenuInternet\* -ErrorAction SilentlyContinue | 
+    ForEach-Object {
+    (Get-ItemProperty ("$($_.PSPath)\Capabilities\" + (@("URLAssociations", "FileAssociations") | Select-Object -Index $Extension.Contains("."))) -ErrorAction SilentlyContinue).$Extension
+    }
+    
+    $allApplicationAssociationToasts | 
+    ForEach-Object { if ($_) {
+        if (Set-ItemProperty HKCU:\Software\Microsoft\Windows\CurrentVersion\ApplicationAssociationToasts $_"_"$Extension -Value 0 -Type DWord -ErrorAction SilentlyContinue -PassThru) {
+          Write-Verbose  ("Write Reg ApplicationAssociationToastsList OK: " + $_ + "_" + $Extension)
+        }
+        else {
+          Write-Verbose  ("Write Reg ApplicationAssociationToastsList FAILED: " + $_ + "_" + $Extension)
+        }
+      } 
+    }
+
+  }
 
   function local:Update-RegistryChanges {
     $code = @'
@@ -332,7 +385,7 @@ function Set-FTA {
       Write-Verbose "Reg Icon: $keyPath"
     }
     catch {
-      Write-Verbose "Write Reg Icon Fail"
+      Write-Verbose "Write Reg Icon FAILED"
     }
   }
 
@@ -411,7 +464,7 @@ function Set-FTA {
       Write-Verbose "Write Reg Extension UserChoice OK"
     }
     catch {
-      throw "Write Reg Extension UserChoice FAIL"
+      throw "Write Reg Extension UserChoice FAILED"
     }
   }
 
@@ -450,7 +503,7 @@ function Set-FTA {
       Write-Verbose "Write Reg Protocol UserChoice OK"
     }
     catch {
-      throw "Write Reg Protocol UserChoice FAIL"
+      throw "Write Reg Protocol UserChoice FAILED"
     }
     
   }
@@ -667,6 +720,9 @@ function Set-FTA {
   $progHash = Get-Hash $baseInfo
   Write-Verbose "Hash: $progHash"
   
+  #Write AssociationToasts List
+  Write-RequiredApplicationAssociationToasts $ProgId $Extension
+
   #Handle Extension Or Protocol
   if ($Extension.Contains(".")) {
     Write-Verbose "Write Registry Extension: $Extension"

@@ -1,11 +1,11 @@
 # PowerShell SFTA
 
-[![Latest Version](https://img.shields.io/badge/Latest-v1.1.0-green.svg)]()
+[![Latest Version](https://img.shields.io/badge/Latest-v1.2.0-green.svg)]()
 [![MIT License](https://img.shields.io/github/license/mashape/apistatus.svg)]()
 [![Made with Love](https://img.shields.io/badge/Made%20with-%E2%9D%A4-red.svg?colorB=11a9f7)]()
 
 
-PowerShell Set File/Protocol Type Association Default Application Windows 10
+PowerShell Set File/Protocol Type Association Default Application Windows 10/11
 
 
 ## Features
@@ -71,4 +71,4 @@ See [CHANGELOG.md](CHANGELOG.md)
 
 Usage is provided under the [MIT](https://choosealicense.com/licenses/mit/) License.
 
-Copyright © 2021, [Danysys.](https://www.danysys.com)
+Copyright © 2022, [Danysys.](https://www.danysys.com)
