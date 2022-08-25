@@ -53,11 +53,24 @@ Register-FTA "C:\SumatraPDF.exe" .pdf -Icon "shell32.dll,100"
 
 ## Additional Instructions
 
+##### Set Microsoft Edge as Default .pdf reader from Windows Command Processor (cmd.exe):
+```powershell
+powershell -ExecutionPolicy Bypass -command "& { . .\SFTA.ps1; Set-FTA 'MSEdgePDF' '.pdf' }"
+
+```
+
 ##### Set Sumatra PDF as Default .pdf reader from Windows Command Processor (cmd.exe):
 ```powershell
 powershell -ExecutionPolicy Bypass -command "& { . .\SFTA.ps1; Set-FTA 'Applications\SumatraPDF.exe' '.pdf' }"
 
 ```
+
+##### Set Sumatra PDF as Default .pdf reader from Windows Command Processor (cmd.exe) (Load Script From GitHub Raw URL):
+```powershell
+powershell -ExecutionPolicy Bypass -command "& { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/DanysysTeam/PS-SFTA/master/SFTA.ps1'));Set-FTA 'Applications\SumatraPDF.exe' '.pdf' }"
+
+```
+
 
 
 ## Release History
