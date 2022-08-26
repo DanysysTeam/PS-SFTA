@@ -511,8 +511,9 @@ function Set-FTA {
   
   function local:Get-UserExperience {
     [OutputType([string])]
-      
+    $hardcodedExperience = "User Choice set via Windows User Experience {D18B6DD5-6124-4341-9318-804003BAFA0B}"
     $userExperienceSearch = "User Choice set via Windows User Experience"
+    $userExperienceString = ""
     $user32Path = [Environment]::GetFolderPath([Environment+SpecialFolder]::SystemX86) + "\Shell32.dll"
     $fileStream = [System.IO.File]::Open($user32Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
     $binaryReader = New-Object System.IO.BinaryReader($fileStream)
@@ -521,8 +522,13 @@ function Set-FTA {
     $dataString = [Text.Encoding]::Unicode.GetString($bytesData)
     $position1 = $dataString.IndexOf($userExperienceSearch)
     $position2 = $dataString.IndexOf("}", $position1)
-
-    Write-Output $dataString.Substring($position1, $position2 - $position1 + 1)
+    try {
+      $userExperienceString = $dataString.Substring($position1, $position2 - $position1 + 1)
+    }
+    catch {
+      $userExperienceString = $hardcodedExperience
+    }
+    Write-Output $userExperienceString
   }
   
 
