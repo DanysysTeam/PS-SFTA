@@ -608,7 +608,7 @@ function Set-FTA {
     function local:Convert-Int32 {
       param (
         [Parameter( Position = 0, Mandatory = $true)]
-        $Value
+        [long] $Value
       )
     
       [byte[]] $bytes = [BitConverter]::GetBytes($Value)
